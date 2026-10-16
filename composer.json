@@ -1,0 +1,39 @@
+{
+    "name": "kipchak/driver-sftp",
+    "type": "library",
+    "description": "An SFTP driver for exchanging files with partners and other systems from the Kipchak API Development Kit (ADK)",
+    "keywords": [
+        "APIs",
+        "SFTP",
+        "SSH",
+        "File Transfer",
+        "Managed File Transfer",
+        "Microservices",
+        "Mamluk"
+    ],
+    "homepage": "https://mamluk.net",
+    "license": "MIT",
+    "config": {
+        "sort-packages": true
+    },
+    "autoload": {
+        "psr-4": {
+            "Kipchak\\Driver\\Sftp\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Kipchak\\Driver\\Sftp\\Tests\\": "tests/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "require": {
+        "kipchak/core": "^2 || ^3",
+        "kipchak/driver-config": "^1",
+        "phpseclib/phpseclib": "^3.0.57"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12"
+    }
+}
