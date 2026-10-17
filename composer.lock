@@ -145,11 +145,11 @@
         },
         {
             "name": "kipchak/core",
-            "version": "3.9",
+            "version": "3.10",
             "source": {
                 "type": "git",
                 "url": "https://1x.ax/mamluk/kipchak/core",
-                "reference": "f10e3d1bb9538c642379fe4ce1b4b8780f742528"
+                "reference": "579b700972f957c5a7fe6ca8a83b7552dab329a9"
             },
             "require": {
                 "cuyz/valinor": "^2",
@@ -178,15 +178,15 @@
                 "apis",
                 "microservices"
             ],
-            "time": "2026-10-07T03:58:13+00:00"
+            "time": "2026-10-17T06:43:11+00:00"
         },
         {
             "name": "kipchak/driver-config",
-            "version": "1.27",
+            "version": "1.28",
             "source": {
                 "type": "git",
                 "url": "https://1x.ax/mamluk/kipchak/drivers/config",
-                "reference": "22fc9556ba49323a5e769868b38432b1f8a99e1c"
+                "reference": "42b6c4d8dd611089a7bfedc695a212d5ff73bbc3"
             },
             "require": {
                 "kipchak/core": "^2 || ^3"
@@ -210,7 +210,7 @@
                 "http",
                 "microservices"
             ],
-            "time": "2026-10-07T03:58:30+00:00"
+            "time": "2026-10-17T06:43:31+00:00"
         },
         {
             "name": "laravel/serializable-closure",
@@ -2440,16 +2440,16 @@
         },
         {
             "name": "zircote/swagger-php",
-            "version": "6.14.0",
+            "version": "6.15.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/zircote/swagger-php.git",
-                "reference": "c5361c2a43391fa3a4ca887cd0209d60ce32e7fa"
+                "reference": "892dc2ccda5fe7d1d86c765fa9877e246c5032c6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/zircote/swagger-php/zipball/c5361c2a43391fa3a4ca887cd0209d60ce32e7fa",
-                "reference": "c5361c2a43391fa3a4ca887cd0209d60ce32e7fa",
+                "url": "https://api.github.com/repos/zircote/swagger-php/zipball/892dc2ccda5fe7d1d86c765fa9877e246c5032c6",
+                "reference": "892dc2ccda5fe7d1d86c765fa9877e246c5032c6",
                 "shasum": ""
             },
             "require": {
@@ -2518,7 +2518,7 @@
             ],
             "support": {
                 "issues": "https://github.com/zircote/swagger-php/issues",
-                "source": "https://github.com/zircote/swagger-php/tree/6.14.0"
+                "source": "https://github.com/zircote/swagger-php/tree/6.15.0"
             },
             "funding": [
                 {
@@ -2526,7 +2526,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-14T05:49:26+00:00"
+            "time": "2026-10-15T21:56:50+00:00"
         }
     ],
     "packages-dev": [
@@ -3067,16 +3067,16 @@
         },
         {
             "name": "phpunit/phpunit",
-            "version": "12.5.39",
+            "version": "12.5.40",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sebastianbergmann/phpunit.git",
-                "reference": "4e8cbead3741cc57f16d142f4c5dc73c2747820a"
+                "reference": "76bd3198f16aeb375a4d5f3626471445aed0966e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/4e8cbead3741cc57f16d142f4c5dc73c2747820a",
-                "reference": "4e8cbead3741cc57f16d142f4c5dc73c2747820a",
+                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/76bd3198f16aeb375a4d5f3626471445aed0966e",
+                "reference": "76bd3198f16aeb375a4d5f3626471445aed0966e",
                 "shasum": ""
             },
             "require": {
@@ -3145,7 +3145,7 @@
             "support": {
                 "issues": "https://github.com/sebastianbergmann/phpunit/issues",
                 "security": "https://github.com/sebastianbergmann/phpunit/security/policy",
-                "source": "https://github.com/sebastianbergmann/phpunit/tree/12.5.39"
+                "source": "https://github.com/sebastianbergmann/phpunit/tree/12.5.40"
             },
             "funding": [
                 {
@@ -3153,7 +3153,7 @@
                     "type": "other"
                 }
             ],
-            "time": "2026-10-12T15:27:27+00:00"
+            "time": "2026-10-16T05:55:07+00:00"
         },
         {
             "name": "sebastian/cli-parser",
