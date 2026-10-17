@@ -13,7 +13,8 @@ batch files over SFTP.
   request cannot reach the rest of the server.
 * **Worker mode**: the connection is kept between requests and re-opened when the server has closed it.
 
-Built on [phpseclib](https://phpseclib.com) 3, which is pure PHP: it needs neither the `ssh2` extension nor an
+Built on [phpseclib](https://phpseclib.com), version 3 or 4, whichever Composer installs alongside your other
+packages. phpseclib is pure PHP: it needs neither the `ssh2` extension nor an
 `ssh` program, so it runs on the hardened Kipchak runtime image. Tested against OpenSSH 10.3.
 
 #### Composer Package
@@ -168,13 +169,13 @@ try {
 } catch (SftpConnectionException $exception) {
     // The server could not be reached, its host key did not match, or it rejected the credentials
 } catch (SftpException $exception) {
-    // Anything else the server refused: $exception->sftpError, e.g. "NET_SFTP_STATUS_PERMISSION_DENIED: Permission denied"
+    // Anything else the server refused: $exception->sftpError, e.g. "SSH_FX_PERMISSION_DENIED: Permission denied"
 }
 ```
 
 | Exception | Meaning |
 |---|---|
-| `SftpException` | The base class. `$path` is the remote path, `$sftpError` the server's status. |
+| `SftpException` | The base class. `$path` is the remote path, `$sftpError` the server's status as the SFTP protocol names it (`SSH_FX_...`). |
 | `FileNotFoundException` | No such file or directory |
 | `SftpConnectionException` | The server could not be reached, or the connection was lost and could not be re-opened |
 | `HostKeyVerificationException` | The server's host key is not configured. `$fingerprint` is the key it presented. |
@@ -201,6 +202,12 @@ vendor/bin/phpunit --testsuite Unit
 # Integration tests run against a real OpenSSH server, built from tests/Integration/Dockerfile:
 tests/Integration/start-sftp.sh
 vendor/bin/phpunit
+
+# The lock file installs phpseclib 4. To run the tests on phpseclib 3 as well:
+composer update phpseclib/phpseclib --with phpseclib/phpseclib:^3.0.57
+vendor/bin/phpunit
+composer install    # back to the lock file
+
 docker rm -f kipchak-sftp
 ```
 

@@ -11,7 +11,7 @@ use Kipchak\Driver\Sftp\Exception\HostKeyVerificationException;
 use Kipchak\Driver\Sftp\Exception\SftpConnectionException;
 use Kipchak\Driver\Sftp\Exception\SftpException;
 use Kipchak\Driver\Sftp\Library\SftpClient;
-use Kipchak\Driver\Sftp\Tests\Fake\FakeSftp;
+use Kipchak\Driver\Sftp\Tests\Fake\FakeConnection;
 use PHPUnit\Framework\TestCase;
 
 final class SftpClientTest extends TestCase
@@ -19,10 +19,10 @@ final class SftpClientTest extends TestCase
     // ssh-keygen -lf of the fake server's host key.
     private const FINGERPRINT = 'SHA256:e1LFZ/jFM7OU2Kvzaqrn5Mx5iU/9XY/+bUQTx+B32QU';
 
-    /** @var list<FakeSftp> */
+    /** @var list<FakeConnection> */
     private array $connections = [];
 
-    /** @var ?callable(FakeSftp): void Runs on every connection opened after it is set. */
+    /** @var ?callable(FakeConnection): void Runs on every connection opened after it is set. */
     private $onConnect = null;
 
     private function client(?string $root = '/data', bool $atomicWrites = true, ?callable $prepare = null): SftpClient
@@ -34,8 +34,8 @@ final class SftpClientTest extends TestCase
             hostKeyFingerprints: [self::FINGERPRINT],
             root: $root,
             atomicWrites: $atomicWrites,
-            connector: function () use ($prepare): FakeSftp {
-                $sftp = new FakeSftp();
+            connector: function () use ($prepare): FakeConnection {
+                $sftp = new FakeConnection();
                 $sftp->directories['/data'] = true;
                 $sftp->directories['/data/inbound'] = true;
                 if ($prepare !== null) {
@@ -56,7 +56,7 @@ final class SftpClientTest extends TestCase
 
     public function testFingerprintMatchesOpenSsh(): void
     {
-        $this->assertSame(self::FINGERPRINT, SftpClient::fingerprint((new FakeSftp())->hostKey));
+        $this->assertSame(self::FINGERPRINT, SftpClient::fingerprint((string) (new FakeConnection())->hostKey()));
     }
 
     public function testConnectsChecksTheHostKeyThenLogsInOnce(): void
@@ -66,13 +66,13 @@ final class SftpClientTest extends TestCase
         $client->exists('b.txt');
 
         $this->assertCount(1, $this->connections, 'The connection is kept between calls');
-        $this->assertSame(['hostkey', 'login kipchak 1', 'disableStatCache'], array_slice($this->connections[0]->calls, 0, 3));
+        $this->assertSame(['hostkey', 'login kipchak 1'], array_slice($this->connections[0]->calls, 0, 2));
     }
 
     public function testUnknownHostKeyIsRefusedBeforeAnyCredentialsAreSent(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
-            $sftp->hostKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl';
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
+            $sftp->key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl';
         });
 
         try {
@@ -87,7 +87,7 @@ final class SftpClientTest extends TestCase
 
     public function testHostKeyCheckCanBeTurnedOff(): void
     {
-        $sftp = new FakeSftp('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl');
+        $sftp = new FakeConnection('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl');
         $client = new SftpClient(host: 'h', username: 'u', password: 'p', verifyHostKey: false, connector: static fn () => $sftp);
 
         $this->assertTrue($client->exists('/'));
@@ -95,7 +95,7 @@ final class SftpClientTest extends TestCase
 
     public function testRejectedCredentials(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->acceptLogin = false;
         });
 
@@ -129,7 +129,7 @@ final class SftpClientTest extends TestCase
         $this->connections[0]->dropOnNextOperation = true;
 
         // The second connection is to a fresh fake server: give it the file.
-        $this->onConnect = static function (FakeSftp $sftp): void {
+        $this->onConnect = static function (FakeConnection $sftp): void {
             $sftp->files['/data/inbound/a.csv'] = 'a';
         };
 
@@ -139,7 +139,7 @@ final class SftpClientTest extends TestCase
 
     public function testAFailureOnAFreshConnectionIsNotRepeated(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->dropOnNextOperation = true;
         });
 
@@ -158,7 +158,7 @@ final class SftpClientTest extends TestCase
         $client->exists('a');
         $this->connections[0]->dropOnNextOperation = true;
 
-        $this->onConnect = static function (FakeSftp $sftp): void {
+        $this->onConnect = static function (FakeConnection $sftp): void {
             $sftp->dropOnNextOperation = true;
         };
 
@@ -180,7 +180,7 @@ final class SftpClientTest extends TestCase
             $this->fail('Expected a missing file');
         } catch (FileNotFoundException $e) {
             $this->assertSame('inbound/missing.csv', $e->path);
-            $this->assertStringStartsWith('NET_SFTP_STATUS_NO_SUCH_FILE', (string) $e->sftpError);
+            $this->assertStringStartsWith('SSH_FX_NO_SUCH_FILE', (string) $e->sftpError);
         }
         $this->assertCount(1, $this->connections);
         $this->assertSame(1, count(array_filter($this->connections[0]->calls, static fn ($c) => str_starts_with($c, 'get '))));
@@ -224,7 +224,7 @@ final class SftpClientTest extends TestCase
 
         $this->assertSame(
             ['stat /data/inbound/x', 'stat file', 'stat ../up', 'stat .'],
-            array_slice($this->connections[0]->calls, 3),
+            array_slice($this->connections[0]->calls, 2),
         );
     }
 
@@ -244,17 +244,17 @@ final class SftpClientTest extends TestCase
         $client->write('inbound/orders.csv', 'id,total');
 
         $calls = $this->connections[0]->calls;
-        $this->assertMatchesRegularExpression('#^put /data/inbound/\.orders\.csv\.[0-9a-f]{8}\.part$#', $calls[3]);
-        $this->assertStringStartsWith('stat /data/inbound/.orders.csv.', $calls[4]);
-        $this->assertStringStartsWith('posix_rename /data/inbound/.orders.csv.', $calls[5]);
-        $this->assertStringEndsWith(' /data/inbound/orders.csv', $calls[5]);
+        $this->assertMatchesRegularExpression('#^put /data/inbound/\.orders\.csv\.[0-9a-f]{8}\.part$#', $calls[2]);
+        $this->assertStringStartsWith('stat /data/inbound/.orders.csv.', $calls[3]);
+        $this->assertStringStartsWith('posix_rename /data/inbound/.orders.csv.', $calls[4]);
+        $this->assertStringEndsWith(' /data/inbound/orders.csv', $calls[4]);
         $this->assertSame(['/data/inbound/orders.csv' => 'id,total'], $this->connections[0]->files);
     }
 
     public function testWithoutPosixRenameAnExistingFileIsDeletedFirst(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
-            $sftp->extensions = [];
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
+            $sftp->posixRename = false;
             $sftp->files['/data/inbound/orders.csv'] = 'old';
         });
         $client->write('inbound/orders.csv', 'new');
@@ -267,7 +267,7 @@ final class SftpClientTest extends TestCase
         $client = $this->client(atomicWrites: false);
         $client->write('inbound/orders.csv', 'x');
 
-        $this->assertSame('put /data/inbound/orders.csv', $this->connections[0]->calls[3]);
+        $this->assertSame('put /data/inbound/orders.csv', $this->connections[0]->calls[2]);
     }
 
     public function testAFailedWriteLeavesNoTemporaryFile(): void
@@ -308,7 +308,7 @@ final class SftpClientTest extends TestCase
 
     public function testListingIsSortedAndFiltered(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->files['/data/inbound/b.csv'] = 'bb';
             $sftp->files['/data/inbound/a.csv'] = 'a';
             $sftp->files['/data/inbound/c.txt'] = 'c';
@@ -335,7 +335,7 @@ final class SftpClientTest extends TestCase
 
     public function testStatAndExists(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->files['/data/inbound/a.csv'] = 'abc';
         });
 
@@ -348,7 +348,7 @@ final class SftpClientTest extends TestCase
 
     public function testReadDownloadAndReadStream(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->files['/data/inbound/a.csv'] = 'contents';
         });
         $local = sys_get_temp_dir() . '/kipchak-sftp-' . bin2hex(random_bytes(4));
@@ -376,7 +376,7 @@ final class SftpClientTest extends TestCase
 
     public function testMoveRefusesToReplaceUnlessAsked(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->files['/data/inbound/a.csv'] = 'a';
             $sftp->files['/data/inbound/b.csv'] = 'b';
         });
@@ -394,7 +394,7 @@ final class SftpClientTest extends TestCase
 
     public function testDirectories(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->files['/data/inbound/a.csv'] = 'a';
         });
 
@@ -410,7 +410,7 @@ final class SftpClientTest extends TestCase
 
     public function testDelete(): void
     {
-        $client = $this->client(prepare: static function (FakeSftp $sftp): void {
+        $client = $this->client(prepare: static function (FakeConnection $sftp): void {
             $sftp->files['/data/inbound/a.csv'] = 'a';
         });
 

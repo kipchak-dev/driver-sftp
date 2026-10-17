@@ -107,7 +107,7 @@ final class SftpServerTest extends TestCase
         }
 
         $this->expectException(AuthenticationException::class);
-        $this->driver(['private_key' => \phpseclib3\Crypt\EC::createKey('Ed25519')->toString('OpenSSH')])->list();
+        $this->driver(['private_key' => __DIR__ . '/../fixtures/id_ed25519'])->list();
     }
 
     public function testNothingListening(): void
@@ -221,7 +221,10 @@ final class SftpServerTest extends TestCase
             try {
                 $operation();
                 $this->fail('Operation ' . $i . ' should have failed');
-            } catch (FileNotFoundException) {
+            } catch (FileNotFoundException $e) {
+                if ($e->sftpError !== null) {
+                    $this->assertStringStartsWith('SSH_FX_NO_SUCH_FILE', $e->sftpError);
+                }
             }
         }
         $this->assertSame([], $this->sftp->list(), 'No temporary file left behind');
@@ -236,7 +239,7 @@ final class SftpServerTest extends TestCase
             $this->fail('Expected the chroot directory to be read-only');
         } catch (SftpException $e) {
             $this->assertNotInstanceOf(FileNotFoundException::class, $e);
-            $this->assertStringContainsString('PERMISSION_DENIED', (string) $e->sftpError);
+            $this->assertStringStartsWith('SSH_FX_PERMISSION_DENIED', (string) $e->sftpError);
         }
     }
 

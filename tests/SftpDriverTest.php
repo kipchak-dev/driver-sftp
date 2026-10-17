@@ -9,13 +9,12 @@ use InvalidArgumentException;
 use Kipchak\Driver\Config\Config;
 use Kipchak\Driver\Sftp\Library\SftpClient;
 use Kipchak\Driver\Sftp\Sftp;
-use phpseclib3\Crypt\EC;
-use phpseclib3\Crypt\PublicKeyLoader;
 use PHPUnit\Framework\TestCase;
 
 final class SftpDriverTest extends TestCase
 {
     private const FINGERPRINT = 'SHA256:e1LFZ/jFM7OU2Kvzaqrn5Mx5iU/9XY/+bUQTx+B32QU';
+    private const FIXTURES = __DIR__ . '/fixtures';
 
     private function primeDriver(array $config): Container
     {
@@ -147,35 +146,42 @@ final class SftpDriverTest extends TestCase
 
     public function testPrivateKeyFromAFileWithAPassphrase(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'key');
-        file_put_contents($file, EC::createKey('Ed25519')->withPassword('phrase')->toString('OpenSSH'));
-
         $this->primeDriver(['connections' => ['default' => $this->connection([
             'password' => '',
-            'private_key' => $file,
+            'private_key' => self::FIXTURES . '/id_ed25519_encrypted',
             'private_key_passphrase' => 'phrase',
         ])]]);
 
-        $this->assertInstanceOf(EC\PrivateKey::class, $this->property(Sftp::get(), 'privateKey'));
-        unlink($file);
+        $this->assertIsPrivateKey($this->property(Sftp::get(), 'privateKey'));
     }
 
     public function testPrivateKeyAsAString(): void
     {
         $this->primeDriver(['connections' => ['default' => $this->connection([
-            'private_key' => EC::createKey('Ed25519')->toString('OpenSSH'),
+            'private_key' => (string) file_get_contents(self::FIXTURES . '/id_ed25519'),
         ])]]);
 
         $client = Sftp::get();
-        $this->assertNotNull($this->property($client, 'privateKey'));
+        $this->assertIsPrivateKey($this->property($client, 'privateKey'));
         $this->assertSame('secret', $this->property($client, 'password'), 'Both, for servers that require both');
     }
 
     public function testWrongPassphrase(): void
     {
         $this->primeDriver(['connections' => ['default' => $this->connection([
-            'private_key' => EC::createKey('Ed25519')->withPassword('phrase')->toString('OpenSSH'),
+            'private_key' => self::FIXTURES . '/id_ed25519_encrypted',
             'private_key_passphrase' => 'wrong',
+        ])]]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('SFTP connection "default": the private key could not be loaded');
+        Sftp::get();
+    }
+
+    public function testMissingPassphrase(): void
+    {
+        $this->primeDriver(['connections' => ['default' => $this->connection([
+            'private_key' => self::FIXTURES . '/id_ed25519_encrypted',
         ])]]);
 
         $this->expectException(InvalidArgumentException::class);
@@ -194,8 +200,9 @@ final class SftpDriverTest extends TestCase
 
     public function testAPublicKeyIsNotAPrivateKey(): void
     {
-        $public = PublicKeyLoader::load(EC::createKey('Ed25519')->getPublicKey()->toString('OpenSSH'))->toString('PKCS8');
-        $this->primeDriver(['connections' => ['default' => $this->connection(['private_key' => $public])]]);
+        $this->primeDriver(['connections' => ['default' => $this->connection([
+            'private_key' => (string) file_get_contents(self::FIXTURES . '/id_ed25519.pub'),
+        ])]]);
 
         $this->expectException(InvalidArgumentException::class);
         Sftp::get();
@@ -213,6 +220,14 @@ final class SftpDriverTest extends TestCase
         }
         $this->assertSame('sftp.example.com', $this->property($client, 'host'));
         $this->assertNull($this->property($client, 'root'));
+    }
+
+    private function assertIsPrivateKey(mixed $key): void
+    {
+        $this->assertTrue(
+            $key instanceof \phpseclib3\Crypt\Common\PrivateKey || $key instanceof \phpseclib4\Crypt\Common\PrivateKey,
+            'Expected a phpseclib private key',
+        );
     }
 
     private function property(object $object, string $name): mixed

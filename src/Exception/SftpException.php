@@ -10,8 +10,8 @@ use RuntimeException;
  * An SFTP operation failed: permission denied, a destination that already exists, a transfer that did not arrive
  * complete, ...
  *
- * $path is the remote path the operation was working on, and $sftpError the server's status as phpseclib reports
- * it, for example "NET_SFTP_STATUS_PERMISSION_DENIED: Permission denied".
+ * $path is the remote path the operation was working on, and $sftpError the server's status, named as in the SFTP
+ * protocol: for example "SSH_FX_PERMISSION_DENIED: Permission denied".
  */
 class SftpException extends RuntimeException
 {

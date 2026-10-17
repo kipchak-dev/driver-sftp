@@ -11,9 +11,9 @@ use Kipchak\Driver\Sftp\Exception\FileNotFoundException;
 use Kipchak\Driver\Sftp\Exception\HostKeyVerificationException;
 use Kipchak\Driver\Sftp\Exception\SftpConnectionException;
 use Kipchak\Driver\Sftp\Exception\SftpException;
+use Kipchak\Driver\Sftp\Library\Connection\Connection;
+use Kipchak\Driver\Sftp\Library\Connection\Phpseclib;
 use Kipchak\Driver\Sftp\Result\FileInfo;
-use phpseclib3\Crypt\Common\PrivateKey;
-use phpseclib3\Net\SFTP;
 use Throwable;
 
 /**
@@ -24,25 +24,28 @@ use Throwable;
  * and turns out to be dead is re-opened and the operation tried once more. Every operation here is safe to repeat:
  * writes go to a temporary file first, so a repeated write never leaves a partial file behind.
  *
+ * It works with phpseclib 3 or 4, whichever Composer installed.
+ *
  * With a root, every path is resolved inside it and a path that would climb out of it ("../") is rejected, so
  * paths built from request data cannot reach the rest of the server.
  */
 class SftpClient
 {
-    private ?SFTP $sftp = null;
+    private ?Connection $sftp = null;
 
-    /** @var Closure(string, int, int): SFTP */
+    /** @var Closure(string, int, int): Connection */
     private readonly Closure $connector;
 
     /**
-     * @param list<string> $hostKeyFingerprints SHA256 fingerprints as OpenSSH prints them, e.g. "SHA256:uNiVz...".
-     * @param ?Closure(string, int, int): SFTP $connector Creates the phpseclib connection; replaced in tests.
+     * @param list<string> $hostKeyFingerprints SHA256 fingerprints as OpenSSH prints them, e.g. "SHA256:e1LFZ/jFM7...".
+     * @param ?object $privateKey A phpseclib private key, as Phpseclib::loadPrivateKey() returns.
+     * @param ?Closure(string, int, int): Connection $connector Opens the connection; replaced in tests.
      */
     public function __construct(
         private readonly string $host,
         private readonly string $username,
         private readonly ?string $password = null,
-        private readonly ?PrivateKey $privateKey = null,
+        private readonly ?object $privateKey = null,
         private readonly array $hostKeyFingerprints = [],
         private readonly bool $verifyHostKey = true,
         private readonly int $port = 22,
@@ -58,7 +61,7 @@ class SftpClient
             throw new InvalidArgumentException('An SFTP connection needs the server\'s host key fingerprints, or verify_host_key set to false.');
         }
 
-        $this->connector = $connector ?? static fn (string $host, int $port, int $timeout): SFTP => new SFTP($host, $port, $timeout);
+        $this->connector = $connector ?? Phpseclib::connect(...);
     }
 
     // -------------------------------------------------------------------------
@@ -75,9 +78,9 @@ class SftpClient
     {
         $remote = $this->resolve($directory);
 
-        return $this->call(function (SFTP $sftp) use ($directory, $remote, $pattern): array {
+        return $this->call(function (Connection $sftp) use ($directory, $remote, $pattern): array {
             $entries = $sftp->rawlist($remote);
-            if (!is_array($entries)) {
+            if ($entries === null) {
                 throw $this->failure($sftp, 'Could not list ' . $directory, $directory);
             }
 
@@ -112,9 +115,9 @@ class SftpClient
     {
         $remote = $this->resolve($path);
 
-        return $this->call(function (SFTP $sftp) use ($path, $remote): ?FileInfo {
+        return $this->call(function (Connection $sftp) use ($path, $remote): ?FileInfo {
             $attributes = $sftp->stat($remote);
-            if (!is_array($attributes)) {
+            if ($attributes === null) {
                 $error = $this->failure($sftp, 'Could not read the details of ' . $path, $path);
                 if ($error instanceof FileNotFoundException) {
                     return null;
@@ -138,9 +141,9 @@ class SftpClient
     {
         $remote = $this->resolve($path);
 
-        return $this->call(function (SFTP $sftp) use ($path, $remote): string {
-            $contents = $sftp->get($remote);
-            if (!is_string($contents)) {
+        return $this->call(function (Connection $sftp) use ($path, $remote): string {
+            $contents = $sftp->read($remote);
+            if ($contents === null) {
                 throw $this->failure($sftp, 'Could not read ' . $path, $path);
             }
 
@@ -157,8 +160,8 @@ class SftpClient
         $remote = $this->resolve($path);
         $partial = $localFile . '.part';
 
-        $this->call(function (SFTP $sftp) use ($path, $remote, $localFile, $partial): void {
-            if ($sftp->get($remote, $partial) === false) {
+        $this->call(function (Connection $sftp) use ($path, $remote, $localFile, $partial): void {
+            if (!$sftp->download($remote, $partial)) {
                 @unlink($partial);
                 throw $this->failure($sftp, 'Could not download ' . $path, $path);
             }
@@ -179,9 +182,9 @@ class SftpClient
     {
         $remote = $this->resolve($path);
 
-        return $this->call(function (SFTP $sftp) use ($path, $remote) {
+        return $this->call(function (Connection $sftp) use ($path, $remote) {
             $stream = fopen('php://temp', 'w+b');
-            if ($sftp->get($remote, $stream) === false) {
+            if (!$sftp->download($remote, $stream)) {
                 fclose($stream);
                 throw $this->failure($sftp, 'Could not read ' . $path, $path);
             }
@@ -200,7 +203,7 @@ class SftpClient
      */
     public function write(string $path, string $contents): void
     {
-        $this->transfer($path, $contents, SFTP::SOURCE_STRING, strlen($contents));
+        $this->transfer($path, $contents, false, strlen($contents));
     }
 
     /**
@@ -212,7 +215,7 @@ class SftpClient
             throw new SftpException('Cannot upload ' . $localFile . ': it is not a readable file', $path);
         }
 
-        $this->transfer($path, $localFile, SFTP::SOURCE_LOCAL_FILE, (int) filesize($localFile));
+        $this->transfer($path, $localFile, true, (int) filesize($localFile));
     }
 
     /**
@@ -229,7 +232,7 @@ class SftpClient
 
         $start = (int) ftell($stream);
         $size = fstat($stream)['size'] ?? null;
-        $this->transfer($path, $stream, SFTP::SOURCE_STRING, $size === null ? null : $size - $start, $start);
+        $this->transfer($path, $stream, false, $size === null ? null : $size - $start, $start);
     }
 
     /**
@@ -241,8 +244,8 @@ class SftpClient
         $source = $this->resolve($from);
         $destination = $this->resolve($to);
 
-        $this->call(function (SFTP $sftp) use ($from, $to, $source, $destination, $overwrite): void {
-            if (!$overwrite && $sftp->stat($destination) !== false) {
+        $this->call(function (Connection $sftp) use ($from, $to, $source, $destination, $overwrite): void {
+            if (!$overwrite && $sftp->stat($destination) !== null) {
                 throw new SftpException('Cannot move ' . $from . ' to ' . $to . ': ' . $to . ' already exists', $to);
             }
             if (!$this->rename($sftp, $source, $destination, $overwrite)) {
@@ -258,7 +261,7 @@ class SftpClient
     {
         $remote = $this->resolve($path);
 
-        $this->call(function (SFTP $sftp) use ($path, $remote): void {
+        $this->call(function (Connection $sftp) use ($path, $remote): void {
             if (!$sftp->delete($remote, false)) {
                 throw $this->failure($sftp, 'Could not delete ' . $path, $path);
             }
@@ -272,8 +275,8 @@ class SftpClient
     {
         $remote = $this->resolve($path);
 
-        $this->call(function (SFTP $sftp) use ($path, $remote): void {
-            if ($sftp->mkdir($remote, -1, true) || $sftp->is_dir($remote)) {
+        $this->call(function (Connection $sftp) use ($path, $remote): void {
+            if ($sftp->createDirectory($remote) || $sftp->isDirectory($remote)) {
                 return;
             }
             throw $this->failure($sftp, 'Could not create the directory ' . $path, $path);
@@ -290,8 +293,8 @@ class SftpClient
             throw new InvalidArgumentException('deleteDirectory() will not delete the connection\'s root.');
         }
 
-        $this->call(function (SFTP $sftp) use ($path, $remote): void {
-            if (!$sftp->is_dir($remote)) {
+        $this->call(function (Connection $sftp) use ($path, $remote): void {
+            if (!$sftp->isDirectory($remote)) {
                 throw new FileNotFoundException('Could not delete ' . $path . ': it is not a directory', $path);
             }
             if (!$sftp->delete($remote, true)) {
@@ -333,16 +336,16 @@ class SftpClient
      * Writes to a temporary file next to the destination, checks that all of it arrived, then renames it into
      * place, so that a program collecting files from the directory never sees a partial one.
      *
-     * @param string|resource $data
+     * @param string|resource $data The contents, a local path ($fromLocalFile) or a stream.
      */
-    private function transfer(string $path, mixed $data, int $mode, ?int $expectedSize, ?int $streamStart = null): void
+    private function transfer(string $path, mixed $data, bool $fromLocalFile, ?int $expectedSize, ?int $streamStart = null): void
     {
         $destination = $this->resolve($path);
         if (self::normalise($path) === '') {
             throw new InvalidArgumentException('A file name is required.');
         }
 
-        $this->call(function (SFTP $sftp) use ($path, $data, $mode, $expectedSize, $streamStart, $destination): void {
+        $this->call(function (Connection $sftp) use ($path, $data, $fromLocalFile, $expectedSize, $streamStart, $destination): void {
             if ($streamStart !== null && fseek($data, $streamStart) !== 0) {
                 throw new SftpException('Could not rewind the stream to upload ' . $path, $path);
             }
@@ -352,13 +355,13 @@ class SftpClient
                 : $destination;
 
             try {
-                if (!$sftp->put($target, $data, $mode)) {
+                if (!$sftp->put($target, $data, $fromLocalFile)) {
                     throw $this->failure($sftp, 'Could not write ' . $path, $path);
                 }
 
                 if ($expectedSize !== null) {
                     $written = $sftp->stat($target);
-                    if (is_array($written) && isset($written['size']) && (int) $written['size'] !== $expectedSize) {
+                    if ($written !== null && isset($written['size']) && (int) $written['size'] !== $expectedSize) {
                         throw new SftpException(
                             'Wrote ' . $path . ' but the server has ' . $written['size'] . ' of ' . $expectedSize . ' bytes',
                             $path,
@@ -385,19 +388,17 @@ class SftpClient
      * Renames with posix-rename when replacing a file, which replaces it atomically. Servers without that extension
      * get the file deleted first, which leaves a moment when no file is there.
      */
-    private function rename(SFTP $sftp, string $from, string $to, bool $overwrite): bool
+    private function rename(Connection $sftp, string $from, string $to, bool $overwrite): bool
     {
         if (!$overwrite) {
             return $sftp->rename($from, $to);
         }
 
-        $extensions = $sftp->getSupportedExtensions();
-        if (is_array($extensions) && ($extensions['posix-rename@openssh.com'] ?? null) === '1') {
-            return $sftp->posix_rename($from, $to);
+        if ($sftp->supportsPosixRename()) {
+            return $sftp->posixRename($from, $to);
         }
 
-        $existing = $sftp->stat($to);
-        if (is_array($existing) && !$sftp->delete($to, false)) {
+        if ($sftp->stat($to) !== null && !$sftp->delete($to, false)) {
             return false;
         }
 
@@ -409,7 +410,7 @@ class SftpClient
      * it while idle), it is re-opened and the operation tried once more.
      *
      * @template T
-     * @param Closure(SFTP): T $operation
+     * @param Closure(Connection): T $operation
      * @return T
      */
     private function call(Closure $operation): mixed
@@ -448,7 +449,7 @@ class SftpClient
      * The open connection, or a new one: connected, the host key checked against the configured fingerprints, and
      * only then logged in.
      */
-    private function connection(): SFTP
+    private function connection(): Connection
     {
         if ($this->sftp !== null && $this->sftp->isConnected()) {
             return $this->sftp;
@@ -457,13 +458,12 @@ class SftpClient
 
         try {
             $sftp = ($this->connector)($this->host, $this->port, $this->timeout);
-            $sftp->setTimeout($this->timeout);
-            $hostKey = $sftp->getServerPublicHostKey();
+            $hostKey = $sftp->hostKey();
         } catch (Throwable $e) {
             throw new SftpConnectionException('Could not connect to ' . $this->address() . ': ' . $e->getMessage(), previous: $e);
         }
 
-        if (!is_string($hostKey)) {
+        if ($hostKey === null) {
             throw new HostKeyVerificationException($this->address() . ' did not prove that it holds its host key.');
         }
 
@@ -488,19 +488,14 @@ class SftpClient
             throw new AuthenticationException('The server ' . $this->address() . ' rejected the credentials for ' . $this->username . '.');
         }
 
-        // phpseclib caches file details by default. The connection outlives a request, so a cache would answer
-        // later requests with files that have since changed or gone.
-        $sftp->disableStatCache();
-
         return $this->sftp = $sftp;
     }
 
-    private function failure(SFTP $sftp, string $message, string $path): SftpException
+    private function failure(Connection $sftp, string $message, string $path): SftpException
     {
-        $error = $sftp->getLastSFTPError();
-        $error = is_string($error) && $error !== '' ? $error : null;
+        $error = $sftp->lastError();
 
-        if ($error !== null && str_starts_with($error, 'NET_SFTP_STATUS_NO_SUCH_FILE')) {
+        if ($error !== null && str_starts_with($error, 'SSH_FX_NO_SUCH_FILE')) {
             return new FileNotFoundException($message . ': no such file or directory', $path, $error);
         }
 

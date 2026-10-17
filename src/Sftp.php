@@ -7,11 +7,9 @@ namespace Kipchak\Driver\Sftp;
 use InvalidArgumentException;
 use Kipchak\Core\Interfaces;
 use Kipchak\Driver\Config\Config;
+use Kipchak\Driver\Sftp\Library\Connection\Phpseclib;
 use Kipchak\Driver\Sftp\Library\SftpClient;
-use phpseclib3\Crypt\Common\PrivateKey;
-use phpseclib3\Crypt\PublicKeyLoader;
 use Psr\Container\ContainerInterface;
-use Throwable;
 
 class Sftp implements Interfaces\Driver
 {
@@ -85,7 +83,7 @@ class Sftp implements Interfaces\Driver
      * Loads private_key, which is either the path to a key file or the key itself (from a secret in an environment
      * variable). OpenSSH, PuTTY and PKCS#1/#8 keys are accepted, encrypted with private_key_passphrase if need be.
      */
-    protected static function privateKey(string $connectionName, array $connectionDetails): ?PrivateKey
+    protected static function privateKey(string $connectionName, array $connectionDetails): ?object
     {
         $key = (string) ($connectionDetails['private_key'] ?? '');
         if ($key === '') {
@@ -101,20 +99,10 @@ class Sftp implements Interfaces\Driver
 
         $passphrase = (string) ($connectionDetails['private_key_passphrase'] ?? '');
         try {
-            $loaded = PublicKeyLoader::load($key, $passphrase === '' ? false : $passphrase);
-        } catch (Throwable $e) {
-            throw new InvalidArgumentException(
-                'SFTP connection "' . $connectionName . '": the private key could not be loaded. Check that it is a private key and that private_key_passphrase is right.',
-                0,
-                $e,
-            );
+            return Phpseclib::loadPrivateKey($key, $passphrase === '' ? null : $passphrase);
+        } catch (InvalidArgumentException $e) {
+            throw new InvalidArgumentException('SFTP connection "' . $connectionName . '": ' . $e->getMessage(), 0, $e);
         }
-
-        if (!$loaded instanceof PrivateKey) {
-            throw new InvalidArgumentException('SFTP connection "' . $connectionName . '": private_key holds a public key, not a private key.');
-        }
-
-        return $loaded;
     }
 
     /**
